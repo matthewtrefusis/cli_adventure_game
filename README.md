@@ -2,6 +2,8 @@
 
 Echoes of Ash is a dependency-free, command-line adventure game written in Rust. Explore a shattered realm, grow stronger through combat, collect three star-shards, and breach the Ashen Citadel.
 
+[Download Echoes of Ash v1.0.0](https://github.com/matthewtrefusis/cli_adventure_game/releases/tag/v1.0.0)
+
 ## Run
 
 ```text

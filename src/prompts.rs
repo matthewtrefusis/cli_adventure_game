@@ -1,4 +1,5 @@
 use crate::player::Class;
+use crate::enemy::Enemy;
 use std::io;
 
 fn prompt() -> String {
@@ -48,4 +49,14 @@ pub fn name() -> String {
         .read_line(&mut input)
         .expect("Failed to read line");
     input.trim().to_string()
+}
+
+pub fn first_encounter() -> Enemy {
+    let enemy = Enemy::new("Cave Rat", 30, 5);
+
+    println!("\nA {} jumps out of the darkness!", enemy.name);
+    println!("Enemy health: {}", enemy.health);
+    println!("Enemy attack damage: {}", enemy.attack_damage);
+
+    enemy
 }

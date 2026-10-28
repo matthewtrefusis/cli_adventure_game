@@ -1,4 +1,6 @@
-#[derive(Debug)]
+use crate::weapon::Weapon;
+
+#[derive(Debug, Clone, Copy)]
 pub enum Class {
     Swordsman,
     Wizard,
@@ -11,29 +13,42 @@ pub struct Player {
     pub name: String,
     pub class: Class,
     pub health: u32,
-    pub weapon: String,
-    pub attack_damage: u32,
+    pub weapon: Weapon,
 }
 
 impl Player {
     pub fn new(name: String, class: Class) -> Self {
-        let health = match class {
-            Class::Swordsman => 120,
-            Class::Wizard => 80,
-            Class::Healer => 100,
-        };
-
-        let weapon: String = match class {
-            Class::Swordsman => "Sword".to_string(),
-            Class::Wizard => "Staff".to_string(),
-            Class::Healer => "Dagger".to_string(),
-        };
-
-        let attack_damage = match weapon.as_str() {
-            "Sword" => 12,
-            "Staff" => 3,
-            "Dagger" => 6,
-            _ => 0,
+        let (health, weapon) = match class {
+            Class::Swordsman => (
+                120,
+                Weapon {
+                    name: "Sword".to_string(),
+                    durability: 100,
+                    attack_damage: 12,
+                    is_spell: false,
+                    range: 1,
+                },
+            ),
+            Class::Wizard => (
+                80,
+                Weapon {
+                    name: "Fireball".to_string(),
+                    durability: 70,
+                    attack_damage: 15,
+                    is_spell: true,
+                    range: 10,
+                },
+            ),
+            Class::Healer => (
+                100,
+                Weapon {
+                    name: "Dagger".to_string(),
+                    durability: 90,
+                    attack_damage: 6,
+                    is_spell: false,
+                    range: 1,
+                },
+            ),
         };
 
         Self {
@@ -41,7 +56,6 @@ impl Player {
             class,
             health,
             weapon,
-            attack_damage,
         }
     }
 }

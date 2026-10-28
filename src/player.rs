@@ -1,3 +1,5 @@
+use crate::consumable::Consumable;
+use crate::spell::Spell;
 use crate::weapon::Weapon;
 
 #[derive(Debug, Clone, Copy)]
@@ -8,17 +10,19 @@ pub enum Class {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct Player {
     pub name: String,
     pub class: Class,
     pub health: u32,
+    pub max_health: u32,
     pub weapon: Weapon,
+    pub spells: Vec<Spell>,
+    pub consumables: Vec<Consumable>,
 }
 
 impl Player {
     pub fn new(name: String, class: Class) -> Self {
-        let (health, weapon) = match class {
+        let (health, weapon, spells) = match class {
             Class::Swordsman => (
                 120,
                 Weapon {
@@ -28,16 +32,21 @@ impl Player {
                     is_spell: false,
                     range: 1,
                 },
+                Vec::new(),
             ),
             Class::Wizard => (
                 80,
                 Weapon {
-                    name: "Fireball".to_string(),
+                    name: "Staff".to_string(),
                     durability: 70,
-                    attack_damage: 15,
-                    is_spell: true,
-                    range: 10,
+                    attack_damage: 7,
+                    is_spell: false,
+                    range: 2,
                 },
+                vec![
+                    Spell::damage("Fireball", 15),
+                    Spell::damage("Lightning", 20),
+                ],
             ),
             Class::Healer => (
                 100,
@@ -48,6 +57,7 @@ impl Player {
                     is_spell: false,
                     range: 1,
                 },
+                vec![Spell::healing("Heal", 25), Spell::damage("Holy Light", 10)],
             ),
         };
 
@@ -55,7 +65,35 @@ impl Player {
             name,
             class,
             health,
+            max_health: health,
             weapon,
+            spells,
+            consumables: vec![Consumable::healing_potion()],
         }
+    }
+
+    pub fn heal(&mut self, amount: u32) -> u32 {
+        let previous_health = self.health;
+        self.health = self.health.saturating_add(amount).min(self.max_health);
+        self.health - previous_health
+    }
+
+    pub fn has_consumables(&self) -> bool {
+        !self.consumables.is_empty()
+    }
+
+    pub fn use_consumable(&mut self) -> Option<(String, u32)> {
+        if self.health == self.max_health {
+            return None;
+        }
+
+        let consumable = self.consumables.pop()?;
+        let previous_health = self.health;
+        self.health = self
+            .health
+            .saturating_add(consumable.healing)
+            .min(self.max_health);
+
+        Some((consumable.name, self.health - previous_health))
     }
 }

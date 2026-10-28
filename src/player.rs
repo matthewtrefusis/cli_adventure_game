@@ -2,14 +2,14 @@ use crate::consumable::Consumable;
 use crate::spell::Spell;
 use crate::weapon::Weapon;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Class {
     Swordsman,
     Wizard,
     Healer,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Player {
     pub name: String,
     pub class: Class,
@@ -18,6 +18,9 @@ pub struct Player {
     pub weapon: Weapon,
     pub spells: Vec<Spell>,
     pub consumables: Vec<Consumable>,
+    pub gold: u32,
+    pub experience: u32,
+    pub level: u32,
 }
 
 impl Player {
@@ -69,6 +72,9 @@ impl Player {
             weapon,
             spells,
             consumables: vec![Consumable::healing_potion()],
+            gold: 25,
+            experience: 0,
+            level: 1,
         }
     }
 
@@ -76,10 +82,6 @@ impl Player {
         let previous_health = self.health;
         self.health = self.health.saturating_add(amount).min(self.max_health);
         self.health - previous_health
-    }
-
-    pub fn has_consumables(&self) -> bool {
-        !self.consumables.is_empty()
     }
 
     pub fn use_consumable(&mut self) -> Option<(String, u32)> {
@@ -95,5 +97,30 @@ impl Player {
             .min(self.max_health);
 
         Some((consumable.name, self.health - previous_health))
+    }
+
+    pub fn gain_experience(&mut self, amount: u32) -> bool {
+        self.experience += amount;
+        let required = self.level * 100;
+        if self.experience >= required {
+            self.experience -= required;
+            self.level += 1;
+            self.max_health += 10;
+            self.health = self.max_health;
+            self.weapon.attack_damage += 2;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn take_damage(&mut self, amount: u32) -> u32 {
+        let before = self.health;
+        self.health = self.health.saturating_sub(amount);
+        before - self.health
+    }
+
+    pub fn add_potion(&mut self) {
+        self.consumables.push(Consumable::healing_potion());
     }
 }

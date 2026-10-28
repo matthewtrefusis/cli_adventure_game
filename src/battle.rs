@@ -1,112 +1,134 @@
 use crate::enemy::Enemy;
 use crate::player::Player;
-use crate::prompts::{self, BattleChoice, HealTarget};
+use crate::prompts::read_line;
+use crate::rng::around;
 use crate::spell::SpellKind;
 
-pub fn battle(player: &mut Player, companion: &mut Player, enemy: &mut Enemy) {
-    println!("\nBattle started: {} vs {}", player.name, enemy.name);
-    println!("{} is fighting alongside {}.", companion.name, player.name);
+pub enum BattleResult {
+    Victory { gold: u32, experience: u32 },
+    Fled,
+    Defeat,
+}
 
-    let mut fled = false;
-    let mut enemy_targets_companion = false;
+pub fn battle(player: &mut Player, companion: &mut Player, enemy: &mut Enemy) -> BattleResult {
+    println!("\n╭─ COMBAT ─────────────────────────────────────────╮");
+    println!("│ {} enters combat with {}!", player.name, enemy.name);
+    println!(
+        "│ Enemy: {} HP  |  attack {}  |  armor {}",
+        enemy.health, enemy.attack_damage, enemy.armor
+    );
+    println!("╰───────────────────────────────────────────────────╯");
+    let mut round = 1;
+    let mut companion_turn = false;
 
     while player.health > 0 && enemy.health > 0 {
-        match prompts::battle_choice(!player.spells.is_empty(), player.has_consumables()) {
-            BattleChoice::Weapon => {
-                enemy.health = enemy.health.saturating_sub(player.weapon.attack_damage);
-                println!(
-                    "{} attacks with {} for {} damage. {} health: {}",
-                    player.name,
-                    player.weapon.name,
-                    player.weapon.attack_damage,
-                    enemy.name,
-                    enemy.health
-                );
+        println!(
+            "\nRound {round}  |  {}: {}/{} HP  |  {}: {}/{} HP",
+            player.name,
+            player.health,
+            player.max_health,
+            enemy.name,
+            enemy.health,
+            enemy.max_health
+        );
+        println!("[a]ttack  [f]ists  [s]pell  [p]otion  [r]un  [i]nspect");
+        let Some(choice) = read_line("combat> ") else {
+            return BattleResult::Fled;
+        };
+        let mut acted = true;
+        match choice.as_str() {
+            "a" | "attack" => {
+                let damage = around(player.weapon.attack_damage);
+                let dealt = enemy.take_damage(damage);
+                println!("You strike with {} for {dealt} damage.", player.weapon.name);
             }
-            BattleChoice::Fists => {
-                const FIST_DAMAGE: u32 = 2;
-
-                enemy.health = enemy.health.saturating_sub(FIST_DAMAGE);
-                println!(
-                    "{} attacks with their fists for {} damage. {} health: {}",
-                    player.name, FIST_DAMAGE, enemy.name, enemy.health
-                );
+            "f" | "fists" => {
+                let damage = around(2);
+                let dealt = enemy.take_damage(damage);
+                println!("You fight bare-handed for {dealt} damage.");
             }
-            BattleChoice::Spell => {
-                let spell_index = prompts::spell_choice(&player.spells);
-                let spell = player.spells[spell_index].clone();
-
-                match spell.kind {
-                    SpellKind::Damage => {
-                        enemy.health = enemy.health.saturating_sub(spell.power);
-                        println!(
-                            "{} casts {} for {} damage. {} health: {}",
-                            player.name, spell.name, spell.power, enemy.name, enemy.health
-                        );
-                    }
-                    SpellKind::Heal => {
-                        let target = prompts::heal_target(companion.health > 0);
-                        let (target_name, healing) = match target {
-                            HealTarget::SelfTarget => {
-                                let healing = player.heal(spell.power);
-                                (player.name.clone(), healing)
-                            }
-                            HealTarget::Companion => {
-                                let healing = companion.heal(spell.power);
-                                (companion.name.clone(), healing)
-                            }
-                        };
-
-                        println!(
-                            "{} casts {} on {} and restores {} health.",
-                            player.name, spell.name, target_name, healing
-                        );
-                    }
+            "s" | "spell" if !player.spells.is_empty() => {
+                for (i, spell) in player.spells.iter().enumerate() {
+                    println!("{}: {} ({})", i + 1, spell.name, spell.power);
                 }
-            }
-            BattleChoice::Consumable => {
-                if let Some((name, healing)) = player.use_consumable() {
-                    println!(
-                        "{} uses {} and restores {} health. Health: {}",
-                        player.name, name, healing, player.health
-                    );
-                } else {
-                    println!("{} is already at full health.", player.name);
+                let Some(index) = read_line("spell> ").and_then(|v| v.parse::<usize>().ok()) else {
+                    println!("Invalid spell.");
                     continue;
+                };
+                if let Some(spell) = player.spells.get(index.saturating_sub(1)).cloned() {
+                    match spell.kind {
+                        SpellKind::Damage => {
+                            let damage = around(spell.power);
+                            let dealt = enemy.take_damage(damage);
+                            println!("{} burns the enemy for {dealt} damage.", spell.name);
+                        }
+                        SpellKind::Heal => {
+                            let healed = player.heal(spell.power);
+                            println!("{} restores {healed} HP.", spell.name);
+                        }
+                    }
+                } else {
+                    println!("Invalid spell.");
+                    acted = false;
                 }
             }
-            BattleChoice::Flee => {
-                println!("{} fled from the battle.", player.name);
-                fled = true;
-                break;
+            "p" | "potion" => {
+                if let Some((name, healed)) = player.use_consumable() {
+                    println!("{name} restores {healed} HP.");
+                } else {
+                    println!("You cannot use a potion at full health or have none left.");
+                    acted = false;
+                }
+            }
+            "r" | "run" => {
+                println!("You retreat from {}.", enemy.name);
+                return BattleResult::Fled;
+            }
+            "i" | "inspect" => {
+                println!(
+                    "{} has {}/{} HP, {} attack, {} armor.",
+                    enemy.name, enemy.health, enemy.max_health, enemy.attack_damage, enemy.armor
+                );
+                acted = false;
+            }
+            _ => {
+                println!("Unknown combat command.");
+                acted = false;
             }
         }
-
-        if enemy.health == 0 {
-            break;
+        if !acted || enemy.health == 0 {
+            continue;
         }
 
-        if enemy_targets_companion && companion.health > 0 {
-            companion.health = companion.health.saturating_sub(enemy.attack_damage);
-            println!(
-                "{} attacks for {} damage. {} health: {}",
-                enemy.name, enemy.attack_damage, companion.name, companion.health
-            );
+        if companion.health > 0 && companion_turn {
+            let damage = around(companion.weapon.attack_damage);
+            let dealt = enemy.take_damage(damage);
+            println!("{} follows up for {dealt} damage.", companion.name);
         } else {
-            player.health = player.health.saturating_sub(enemy.attack_damage);
-            println!(
-                "{} attacks for {} damage. {} health: {}",
-                enemy.name, enemy.attack_damage, player.name, player.health
-            );
+            let target = if companion.health > 0 && round % 3 == 0 {
+                &mut *companion
+            } else {
+                &mut *player
+            };
+            let damage = enemy.roll_attack_damage();
+            let dealt = target.take_damage(damage);
+            println!("{} hits {} for {dealt} damage.", enemy.name, target.name);
         }
-        enemy_targets_companion = !enemy_targets_companion;
+        companion_turn = !companion_turn;
+        round += 1;
     }
 
-    if fled {
-        println!("The {} remains undefeated.", enemy.name);
-    } else if enemy.health == 0 {
-        println!("{} wins!", player.name);
+    if enemy.health == 0 {
+        println!(
+            "Victory! You earn {} gold and {} XP.",
+            enemy.reward_gold, enemy.reward_xp
+        );
+        BattleResult::Victory {
+            gold: enemy.reward_gold,
+            experience: enemy.reward_xp,
+        }
     } else {
-        println!("{} wins!", enemy.name);
+        println!("You have fallen. The expedition ends here.");
+        BattleResult::Defeat
     }
 }

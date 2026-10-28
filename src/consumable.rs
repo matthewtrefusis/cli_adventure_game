@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Consumable {
     pub name: String,
     pub healing: u32,

@@ -16,13 +16,13 @@ The game accepts commands at the location prompt:
 | --- | --- |
 | `look` | Describe the current location and exits |
 | `map` | Show the realm map and explored locations |
-| `travel <haven\|woods\|mine\|temple\|citadel>` | Move between locations |
+| `travel <haven\|woods\|mine\|temple\|citadel>` | Move along connected routes |
 | `explore` | Trigger the encounter in the current location |
 | `quest` | Show the active shard quest and reputation |
 | `talk <quartermaster\|rowan>` | Speak with Haven NPCs |
 | `status` | Show health, level, XP, gold, weapon, and shards |
 | `inventory` | List consumables |
-| `rest` | Restore the party at Haven |
+| `rest` | Restore and repair the party at Haven |
 | `buy potion` | Purchase a healing potion at Haven |
 | `save` / `load` | Persist or restore progress from `savegame.txt` |
 | `help` / `quit` | Show commands or exit |
@@ -31,12 +31,18 @@ During combat, use `attack`, `fists`, `spell`, `potion`, `inspect`, or `run`.
 
 The interface includes a live health/gold/shard HUD, progress bars, color-coded status
 markers, a map panel, and quest panels. Each dangerous region awards its shard only
-once; subsequent expeditions provide salvage gold instead. Saves include progression,
-reputation, and quest state.
+once; subsequent expeditions provide salvage gold instead. Reputation is earned from
+first conversations with Haven NPCs and reduces potion prices, down to 5 gold.
 
 Traveling to a dangerous region can also trigger a 35% roaming-monster ambush. Combat
 damage is randomized around each weapon, spell, and enemy's base power (within 25%),
-while armor and minimum-damage rules still apply.
+while armor and minimum-damage rules still apply. Weapon durability decreases during
+attacks, ranged weapons reduce incoming damage slightly, and spell-focus weapons
+ignore enemy armor. Resting in Haven repairs weapons.
+
+Saves use a versioned key/value format and preserve the player, companion, location,
+exploration, inventory, quest, and reputation state. Invalid or inconsistent saves are
+rejected instead of partially loading.
 
 ## Development
 

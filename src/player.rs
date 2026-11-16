@@ -43,7 +43,7 @@ impl Player {
                     name: "Staff".to_string(),
                     durability: 70,
                     attack_damage: 7,
-                    is_spell: false,
+                    is_spell: true,
                     range: 2,
                 },
                 vec![
@@ -101,17 +101,16 @@ impl Player {
 
     pub fn gain_experience(&mut self, amount: u32) -> bool {
         self.experience += amount;
-        let required = self.level * 100;
-        if self.experience >= required {
-            self.experience -= required;
+        let mut leveled_up = false;
+        while self.experience >= self.level * 100 {
+            self.experience -= self.level * 100;
             self.level += 1;
             self.max_health += 10;
             self.health = self.max_health;
             self.weapon.attack_damage += 2;
-            true
-        } else {
-            false
+            leveled_up = true;
         }
+        leveled_up
     }
 
     pub fn take_damage(&mut self, amount: u32) -> u32 {
@@ -122,5 +121,13 @@ impl Player {
 
     pub fn add_potion(&mut self) {
         self.consumables.push(Consumable::healing_potion());
+    }
+
+    pub fn repair_weapon(&mut self) {
+        self.weapon.durability = match self.class {
+            Class::Swordsman => 100,
+            Class::Wizard => 70,
+            Class::Healer => 90,
+        };
     }
 }

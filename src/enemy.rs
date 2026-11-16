@@ -35,7 +35,15 @@ impl Enemy {
     }
 
     pub fn take_damage(&mut self, amount: u32) -> u32 {
-        let damage = amount.saturating_sub(self.armor).max(1);
+        self.take_damage_with_armor(amount, false)
+    }
+
+    pub fn take_damage_with_armor(&mut self, amount: u32, ignores_armor: bool) -> u32 {
+        let damage = if ignores_armor {
+            amount.max(1)
+        } else {
+            amount.saturating_sub(self.armor).max(1)
+        };
         let before = self.health;
         self.health = self.health.saturating_sub(damage);
         before - self.health

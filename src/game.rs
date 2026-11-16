@@ -4,9 +4,14 @@ use crate::player::{Class, Player};
 use crate::prompts::{class_choice, name, read_line};
 use crate::rng::range_inclusive;
 use crate::ui::{color, hp_bar, legend, panel, welcome};
+use std::collections::HashMap;
 use std::fs;
+use std::str::FromStr;
 
 const SAVE_FILE: &str = "savegame.txt";
+const SAVE_VERSION: &str = "2";
+const TALKED_TO_QUARTERMASTER: u8 = 1;
+const TALKED_TO_ROWAN: u8 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Location {
@@ -27,6 +32,41 @@ impl Location {
             Self::Citadel => "The Ashen Citadel",
         }
     }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Haven => "haven",
+            Self::WhisperingWoods => "woods",
+            Self::OldMine => "mine",
+            Self::SunkenTemple => "temple",
+            Self::Citadel => "citadel",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "haven" => Some(Self::Haven),
+            "woods" => Some(Self::WhisperingWoods),
+            "mine" => Some(Self::OldMine),
+            "temple" => Some(Self::SunkenTemple),
+            "citadel" => Some(Self::Citadel),
+            _ => None,
+        }
+    }
+
+    fn adjacent(self, other: Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::Haven, Self::WhisperingWoods)
+                | (Self::WhisperingWoods, Self::Haven)
+                | (Self::WhisperingWoods, Self::OldMine)
+                | (Self::OldMine, Self::WhisperingWoods)
+                | (Self::OldMine, Self::SunkenTemple)
+                | (Self::SunkenTemple, Self::OldMine)
+                | (Self::SunkenTemple, Self::Citadel)
+                | (Self::Citadel, Self::SunkenTemple)
+        )
+    }
 }
 
 pub struct Game {
@@ -40,6 +80,7 @@ pub struct Game {
     quest_stage: u8,
     reputation: i32,
     explored: Vec<Location>,
+    talked_to: u8,
 }
 
 impl Game {
@@ -59,6 +100,7 @@ impl Game {
             quest_stage: 0,
             reputation: 0,
             explored: Vec::new(),
+            talked_to: 0,
         }
     }
 
@@ -94,7 +136,9 @@ impl Game {
             "load" => self.load(),
             "quit" | "exit" => {
                 self.running = false;
-                println!("Your journey is saved in legend.");
+                println!(
+                    "Journey ended. Use `save` before quitting if you want to continue later."
+                );
             }
             "" => {}
             _ => println!("Unknown command. Type `help` to see available commands."),
@@ -176,19 +220,30 @@ impl Game {
             println!("There is nobody here to talk to.");
             return;
         }
-        match npc.unwrap_or("quartermaster") {
-            "quartermaster" | "shop" => println!(
-                "Quartermaster: `buy potion` keeps heroes alive. The woods hide old paths."
+        let (bit, message) = match npc.unwrap_or("quartermaster") {
+            "quartermaster" | "shop" => (
+                TALKED_TO_QUARTERMASTER,
+                "Quartermaster: `buy potion` keeps heroes alive. The woods hide old paths.",
             ),
-            "rowan" => println!(
-                "Rowan: I have walked beside you this far. In the Citadel, I will not retreat."
+            "rowan" => (
+                TALKED_TO_ROWAN,
+                "Rowan: I have walked beside you this far. In the Citadel, I will not retreat.",
             ),
             "oracle" => {
-                println!("The Oracle is not in Haven. Its drowned prophecy waits in the temple.")
+                println!("The Oracle is not in Haven. Its drowned prophecy waits in the temple.");
+                return;
             }
-            _ => println!("People to talk to: quartermaster, rowan."),
+            _ => {
+                println!("People to talk to: quartermaster, rowan.");
+                return;
+            }
+        };
+        println!("{message}");
+        if self.talked_to & bit == 0 {
+            self.talked_to |= bit;
+            self.reputation += 1;
+            println!("Your reputation improves.");
         }
-        self.reputation += 1;
     }
 
     fn look(&self) {
@@ -210,7 +265,10 @@ impl Game {
             self.companion.name, self.companion.health, self.companion.max_health, self.reputation
         );
         if self.location == Location::Haven {
-            println!("The quartermaster says: `buy potion` (10 gold).");
+            println!(
+                "The quartermaster says: `buy potion` ({} gold).",
+                self.potion_price()
+            );
         }
         println!("Exits: haven, woods, mine, temple, citadel. Use `map` to see explored routes.");
     }
@@ -270,6 +328,14 @@ impl Game {
             println!("The citadel gate rejects you. Three star-shards are required.");
             return;
         }
+        if next != self.location && !self.location.adjacent(next) {
+            println!(
+                "You cannot travel directly from {} to {}. Follow the marked route.",
+                self.location.title(),
+                next.title()
+            );
+            return;
+        }
         self.location = next;
         if !self.visited.contains(&next) {
             self.visited.push(next);
@@ -309,6 +375,7 @@ impl Game {
                 if self.player.gain_experience(experience) {
                     println!("Level up! You are now level {}.", self.player.level);
                 }
+                self.companion.gain_experience(experience);
                 if self.location != Location::Citadel && first_clear {
                     self.shards += 1;
                     self.quest_stage = self.shards;
@@ -344,6 +411,7 @@ impl Game {
                 if self.player.gain_experience(experience) {
                     println!("Level up! You are now level {}.", self.player.level);
                 }
+                self.companion.gain_experience(experience);
                 println!("The road is clear. You salvage {} gold.", gold);
             }
             BattleResult::Fled => println!("You escape the ambush and reach {}.", location.title()),
@@ -355,6 +423,8 @@ impl Game {
         if self.location == Location::Haven {
             self.player.health = self.player.max_health;
             self.companion.health = self.companion.max_health;
+            self.player.repair_weapon();
+            self.companion.repair_weapon();
             println!("You rest at the inn. The party is fully restored.");
         } else {
             println!("You need a safe inn in Haven to rest.");
@@ -366,28 +436,35 @@ impl Game {
             println!("There is no shop here.");
             return;
         }
-        if item == Some("potion") && self.player.gold >= 10 {
-            self.player.gold -= 10;
+        let price = self.potion_price();
+        if item == Some("potion") && self.player.gold >= price {
+            self.player.gold -= price;
             self.player.add_potion();
             println!("Potion purchased.");
         } else {
-            println!("The quartermaster sells `potion` for 10 gold.");
+            println!("The quartermaster sells `potion` for {price} gold.");
         }
     }
 
+    fn potion_price(&self) -> u32 {
+        10u32.saturating_sub(self.reputation.max(0) as u32).max(5)
+    }
+
     fn save(&self) {
-        let data = format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}|{}",
-            self.player.name,
-            self.player.health,
-            self.player.max_health,
-            self.player.gold,
-            self.player.experience,
-            self.player.level,
-            self.shards,
-            self.quest_stage,
-            self.reputation
-        );
+        let mut lines = vec![format!("version={SAVE_VERSION}")];
+        save_player(&mut lines, "player", &self.player);
+        save_player(&mut lines, "companion", &self.companion);
+        lines.extend([
+            format!("location={}", self.location.key()),
+            format!("visited={}", locations_to_string(&self.visited)),
+            format!("explored={}", locations_to_string(&self.explored)),
+            format!("shards={}", self.shards),
+            format!("defeated_guardian={}", self.defeated_guardian),
+            format!("quest_stage={}", self.quest_stage),
+            format!("reputation={}", self.reputation),
+            format!("talked_to={}", self.talked_to),
+        ]);
+        let data = lines.join("\n");
         match fs::write(SAVE_FILE, data) {
             Ok(()) => println!("Game saved to {SAVE_FILE}."),
             Err(error) => println!("Unable to save: {error}"),
@@ -396,30 +473,182 @@ impl Game {
 
     fn load(&mut self) {
         match fs::read_to_string(SAVE_FILE) {
-            Ok(data) => {
-                let fields: Vec<&str> = data.split('|').collect();
-                if fields.len() != 9 {
-                    println!("Save file is invalid.");
-                    return;
-                }
-                let parsed: Option<Vec<u32>> = fields[1..].iter().map(|v| v.parse().ok()).collect();
-                if let Some(values) = parsed {
-                    self.player.name = fields[0].to_string();
-                    self.player.health = values[0];
-                    self.player.max_health = values[1];
-                    self.player.gold = values[2];
-                    self.player.experience = values[3];
-                    self.player.level = values[4];
-                    self.shards = values[5] as u8;
-                    self.quest_stage = values[6] as u8;
-                    self.reputation = values[7] as i32;
-                    println!("Game loaded. Welcome back, {}.", self.player.name);
-                } else {
-                    println!("Save file contains invalid numbers.");
-                }
-            }
+            Ok(data) => match parse_save(&data).and_then(|fields| self.apply_save(fields)) {
+                Ok(()) => println!("Game loaded. Welcome back, {}.", self.player.name),
+                Err(error) => println!("Unable to load save: {error}"),
+            },
             Err(error) => println!("Unable to load: {error}"),
         }
+    }
+
+    fn apply_save(&mut self, fields: HashMap<String, String>) -> Result<(), String> {
+        if fields.get("version").map(String::as_str) != Some(SAVE_VERSION) {
+            return Err("unsupported save version".into());
+        }
+        let mut player = self.player.clone();
+        let mut companion = self.companion.clone();
+        load_player(&mut player, "player", &fields)?;
+        load_player(&mut companion, "companion", &fields)?;
+        let location = required_location(&fields, "location")?;
+        let visited = required_locations(&fields, "visited")?;
+        let explored = required_locations(&fields, "explored")?;
+        let shards: u8 = parse_field(&fields, "shards")?;
+        let defeated_guardian: bool = parse_field(&fields, "defeated_guardian")?;
+        let quest_stage: u8 = parse_field(&fields, "quest_stage")?;
+        let reputation: i32 = parse_field(&fields, "reputation")?;
+        let talked_to: u8 = parse_field(&fields, "talked_to")?;
+
+        if shards > 3
+            || quest_stage != shards
+            || explored.len() != shards as usize
+            || visited.is_empty()
+            || !visited.contains(&location)
+            || explored.contains(&Location::Haven)
+            || explored.len() > 3
+            || explored
+                .iter()
+                .enumerate()
+                .any(|(index, location)| explored[..index].contains(location))
+            || explored.iter().any(|location| !visited.contains(location))
+            || talked_to > (TALKED_TO_QUARTERMASTER | TALKED_TO_ROWAN)
+            || defeated_guardian && shards != 3
+            || player.health > player.max_health
+            || companion.health > companion.max_health
+            || player.max_health == 0
+            || companion.max_health == 0
+            || player.level == 0
+            || companion.level == 0
+        {
+            return Err("save contains inconsistent game state".into());
+        }
+        self.player = player;
+        self.companion = companion;
+        self.location = location;
+        self.visited = visited;
+        self.explored = explored;
+        self.shards = shards;
+        self.defeated_guardian = defeated_guardian;
+        self.quest_stage = quest_stage;
+        self.reputation = reputation;
+        self.talked_to = talked_to;
+        self.running = true;
+        Ok(())
+    }
+}
+
+fn save_player(lines: &mut Vec<String>, prefix: &str, player: &Player) {
+    lines.extend([
+        format!("{prefix}_name={}", player.name),
+        format!("{prefix}_class={}", class_key(player.class)),
+        format!("{prefix}_health={}", player.health),
+        format!("{prefix}_max_health={}", player.max_health),
+        format!("{prefix}_gold={}", player.gold),
+        format!("{prefix}_experience={}", player.experience),
+        format!("{prefix}_level={}", player.level),
+        format!("{prefix}_weapon_name={}", player.weapon.name),
+        format!("{prefix}_weapon_durability={}", player.weapon.durability),
+        format!("{prefix}_weapon_damage={}", player.weapon.attack_damage),
+        format!("{prefix}_weapon_spell={}", player.weapon.is_spell),
+        format!("{prefix}_weapon_range={}", player.weapon.range),
+        format!("{prefix}_potions={}", player.consumables.len()),
+    ]);
+}
+
+fn load_player(
+    player: &mut Player,
+    prefix: &str,
+    fields: &HashMap<String, String>,
+) -> Result<(), String> {
+    let name = required(fields, &format!("{prefix}_name"))?.to_string();
+    let class = parse_class(required(fields, &format!("{prefix}_class"))?)?;
+    let mut restored = Player::new(name, class);
+    restored.health = parse_field(fields, &format!("{prefix}_health"))?;
+    restored.max_health = parse_field(fields, &format!("{prefix}_max_health"))?;
+    restored.gold = parse_field(fields, &format!("{prefix}_gold"))?;
+    restored.experience = parse_field(fields, &format!("{prefix}_experience"))?;
+    restored.level = parse_field(fields, &format!("{prefix}_level"))?;
+    restored.weapon.name = required(fields, &format!("{prefix}_weapon_name"))?.to_string();
+    restored.weapon.durability = parse_field(fields, &format!("{prefix}_weapon_durability"))?;
+    restored.weapon.attack_damage = parse_field(fields, &format!("{prefix}_weapon_damage"))?;
+    restored.weapon.is_spell = parse_field(fields, &format!("{prefix}_weapon_spell"))?;
+    restored.weapon.range = parse_field(fields, &format!("{prefix}_weapon_range"))?;
+    let potions: usize = parse_field(fields, &format!("{prefix}_potions"))?;
+    if potions > 100 {
+        return Err(format!("save contains too many {prefix} potions"));
+    }
+    restored.consumables.clear();
+    for _ in 0..potions {
+        restored.add_potion();
+    }
+    *player = restored;
+    Ok(())
+}
+
+fn parse_save(data: &str) -> Result<HashMap<String, String>, String> {
+    let mut fields = HashMap::new();
+    for line in data.lines() {
+        let (key, value) = line
+            .split_once('=')
+            .ok_or_else(|| "save contains a malformed line".to_string())?;
+        if key.is_empty() || fields.insert(key.to_string(), value.to_string()).is_some() {
+            return Err("save contains duplicate or empty keys".into());
+        }
+    }
+    Ok(fields)
+}
+
+fn required<'a>(fields: &'a HashMap<String, String>, key: &str) -> Result<&'a str, String> {
+    fields
+        .get(key)
+        .map(String::as_str)
+        .ok_or_else(|| format!("save is missing {key}"))
+}
+
+fn parse_field<T: FromStr>(fields: &HashMap<String, String>, key: &str) -> Result<T, String> {
+    required(fields, key)?
+        .parse()
+        .map_err(|_| format!("save contains an invalid {key}"))
+}
+
+fn required_location(fields: &HashMap<String, String>, key: &str) -> Result<Location, String> {
+    Location::parse(required(fields, key)?).ok_or_else(|| format!("save contains an invalid {key}"))
+}
+
+fn required_locations(
+    fields: &HashMap<String, String>,
+    key: &str,
+) -> Result<Vec<Location>, String> {
+    required(fields, key)?
+        .split(',')
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            Location::parse(value).ok_or_else(|| format!("save contains an invalid {key}"))
+        })
+        .collect()
+}
+
+fn locations_to_string(locations: &[Location]) -> String {
+    locations
+        .iter()
+        .map(|location| location.key())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn class_key(class: Class) -> &'static str {
+    match class {
+        Class::Swordsman => "swordsman",
+        Class::Wizard => "wizard",
+        Class::Healer => "healer",
+    }
+}
+
+fn parse_class(value: &str) -> Result<Class, String> {
+    match value {
+        "swordsman" => Ok(Class::Swordsman),
+        "wizard" => Ok(Class::Wizard),
+        "healer" => Ok(Class::Healer),
+        _ => Err("save contains an invalid class".into()),
     }
 }
 
@@ -439,6 +668,7 @@ mod tests {
             quest_stage: 0,
             reputation: 0,
             explored: Vec::new(),
+            talked_to: 0,
         };
         assert_eq!(game.location, Location::Haven);
         assert_eq!(game.shards, 0);
@@ -453,5 +683,37 @@ mod tests {
         assert_eq!(player.level, 2);
         assert_eq!(player.health, player.max_health);
         assert!(player.weapon.attack_damage > original_damage);
+    }
+
+    #[test]
+    fn dangerous_regions_require_adjacent_travel() {
+        assert!(Location::Haven.adjacent(Location::WhisperingWoods));
+        assert!(!Location::Haven.adjacent(Location::SunkenTemple));
+    }
+
+    #[test]
+    fn save_parser_rejects_duplicate_keys() {
+        let result = parse_save("version=2\nversion=2");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn reputation_reduces_potion_price_but_never_below_five() {
+        let mut game = Game {
+            player: Player::new("Test".into(), Class::Swordsman),
+            companion: Player::new("Rowan".into(), Class::Swordsman),
+            location: Location::Haven,
+            visited: vec![Location::Haven],
+            shards: 0,
+            defeated_guardian: false,
+            running: true,
+            quest_stage: 0,
+            reputation: 0,
+            explored: Vec::new(),
+            talked_to: 0,
+        };
+        assert_eq!(game.potion_price(), 10);
+        game.reputation = 20;
+        assert_eq!(game.potion_price(), 5);
     }
 }

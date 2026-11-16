@@ -38,8 +38,16 @@ pub fn battle(player: &mut Player, companion: &mut Player, enemy: &mut Enemy) ->
         let mut acted = true;
         match choice.as_str() {
             "a" | "attack" => {
+                if player.weapon.durability == 0 {
+                    println!(
+                        "Your {} is broken. Use `fists` instead.",
+                        player.weapon.name
+                    );
+                    continue;
+                }
                 let damage = around(player.weapon.attack_damage);
-                let dealt = enemy.take_damage(damage);
+                let dealt = enemy.take_damage_with_armor(damage, player.weapon.is_spell);
+                player.weapon.durability -= 1;
                 println!("You strike with {} for {dealt} damage.", player.weapon.name);
             }
             "f" | "fists" => {
@@ -96,21 +104,29 @@ pub fn battle(player: &mut Player, companion: &mut Player, enemy: &mut Enemy) ->
                 acted = false;
             }
         }
+
         if !acted || enemy.health == 0 {
             continue;
         }
 
+        let player_range = player.weapon.range;
         if companion.health > 0 && companion_turn {
             let damage = around(companion.weapon.attack_damage);
             let dealt = enemy.take_damage(damage);
             println!("{} follows up for {dealt} damage.", companion.name);
         } else {
-            let target = if companion.health > 0 && round % 3 == 0 {
+            let companion_target = companion.health > 0 && round % 3 == 0;
+            let target = if companion_target {
                 &mut *companion
             } else {
                 &mut *player
             };
             let damage = enemy.roll_attack_damage();
+            let damage = if companion_target {
+                damage
+            } else {
+                damage.saturating_sub(player_range.saturating_sub(1))
+            };
             let dealt = target.take_damage(damage);
             println!("{} hits {} for {dealt} damage.", enemy.name, target.name);
         }
